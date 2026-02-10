@@ -1,0 +1,174 @@
+# OMNI-HELP: The Adaptive RAG Router
+**Intelligent Customer Support Dispatcher with Multi-Source Routing**
+**Complete Project Blueprint - Version 1.0**
+
+## 1. Executive Summary
+Omni-Help is an intelligent customer support platform that revolutionizes traditional RAG (Retrieval-Augmented Generation) systems through adaptive multi-source routing. Unlike conventional single-pipeline RAG solutions that fail when queries require data from different sources, Omni-Help employs a sophisticated Router Agent that intelligently classifies user intent and dispatches queries to the optimal data source - whether that's a vector database for policy documents, a SQL database for order tracking, or live web search for real-time information.
+
+### 1.1 Problem Statement
+* **Single-Pipeline Failure:** Traditional RAG systems use a single retrieval pipeline, failing when user queries span multiple data sources.
+* **Context Mismatch:** Customer asks "Where is my order #123?" but the system searches PDF documents instead of the order database.
+* **Inefficiency:** Support teams handle 60% of queries that could be automated with proper routing intelligence.
+* **Latency:** Average customer wait times of 15+ minutes due to misrouted queries and escalations.
+
+### 1.2 Solution Overview
+Omni-Help introduces an agentic architecture where a central **Router Agent** acts as an intelligent dispatcher. Before retrieving any information, the system pauses to classify the query intent, then routes to specialized sub-agents optimized for each data source. This approach achieves 95%+ routing accuracy and reduces resolution time by 70%.
+
+### 1.3 Key Innovation
+**The Classification-First Paradigm:** Rather than blindly searching, Omni-Help asks *"What type of information does this query need?"* before taking action. This simple but powerful principle transforms RAG from a retrieval system into an intelligent reasoning system.
+
+---
+
+## 2. System Requirements
+
+### 2.1 Functional Requirements
+
+#### 2.1.1 Router Agent (Core Brain)
+| ID | Requirement | Priority | Acceptance Criteria |
+| :--- | :--- | :--- | :--- |
+| **FR-001** | **Intent Classification:** Classify incoming queries into predefined categories (Policy_Question, Order_Status, General_Chat, Product_Info, Complaint) | Critical | >95% accuracy on test dataset of 1000 queries |
+| **FR-002** | **Multi-Label Support:** Handle queries that span multiple intents (e.g., "What's your return policy and where is order #123?") | High | Correctly identify and route compound queries 90% of the time |
+| **FR-003** | **Confidence Thresholds:** Configurable thresholds; route to human when confidence <70% | Critical | Route to human when confidence <70% |
+| **FR-004** | **Context Preservation:** Maintain conversation context across multiple turns | High | Handle 5+ turn conversations with context-dependent routing |
+| **FR-005** | **Routing Explanation:** Provide transparent reasoning for routing decisions | Medium | Log routing rationale for 100% of decisions |
+| **FR-006** | **Dynamic Route Learning:** Learn new routing patterns from human corrections | Medium | Incorporate feedback loop to improve accuracy by 5% monthly |
+
+#### 2.1.2 Retriever Node (Policy RAG)
+| ID | Requirement | Priority | Acceptance Criteria |
+| :--- | :--- | :--- | :--- |
+| **FR-007** | **Document Ingestion:** Ingest PDF, DOCX, TXT, HTML with automatic chunking | Critical | Process docs up to 500 pages; chunk size 512-1024 tokens |
+| **FR-008** | **Semantic Search:** Dense vector embeddings search | Critical | Return top-k chunks with cosine similarity >0.75 |
+| **FR-009** | **Hybrid Search:** Combine semantic search with BM25 keyword matching | High | Improve recall by 15% over pure semantic search |
+| **FR-010** | **Metadata Filtering:** Filter by doc type, date, category | Medium | Support 10+ metadata fields with AND/OR logic |
+| **FR-011** | **Citation Generation:** Include source references and page numbers | High | Cite exact source for 100% of retrieved info |
+| **FR-012** | **Reranking:** Apply cross-encoder reranking | Medium | Improve precision@5 by 20% |
+
+#### 2.1.3 SQL Node (Order Management)
+| ID | Requirement | Priority | Acceptance Criteria |
+| :--- | :--- | :--- | :--- |
+| **FR-013** | **NL to SQL:** Convert natural language to valid SQL | Critical | Generate correct SQL for 90% of order queries |
+| **FR-014** | **Schema Understanding:** Dynamic schema introspection | High | Correctly reference tables/columns without hardcoding |
+| **FR-015** | **Query Validation:** Read-only enforcement | Critical | Block 100% of DROP, DELETE, UPDATE; allow only SELECT |
+| **FR-016** | **Result Formatting:** Convert SQL results to natural language | High | Convert tabular data to readable sentences |
+| **FR-017** | **Error Handling:** Graceful DB error messages | High | Provide actionable errors for query failures |
+| **FR-018** | **Query Templates:** Parameterized templates for common ops | Medium | Provide 20+ pre-built templates |
+
+#### 2.1.4 Web Search Node (Fallback)
+| ID | Requirement | Priority | Acceptance Criteria |
+| :--- | :--- | :--- | :--- |
+| **FR-019** | **Live Web Search:** Real-time search for external info | High | Return results within 3s for 95% of searches |
+| **FR-020** | **Source Filtering:** Allowlist/Blocklist domains | High | Admin configurable domain lists |
+| **FR-021** | **Result Synthesis:** Combine multiple sources | High | Combine 3-5 sources into single response |
+| **FR-022** | **Freshness Priority:** Prioritize recent results | Medium | Weight last 7 days 2x higher for news |
+| **FR-023** | **Fallback Cascade:** Only trigger if internal sources fail | Critical | Web search triggered for <15% of total queries |
+| **FR-024** | **Rate Limiting:** Control API costs | Medium | Cap at 1000 searches/hour |
+
+#### 2.1.5 Response Synthesis & UX
+| ID | Requirement | Priority | Acceptance Criteria |
+| :--- | :--- | :--- | :--- |
+| **FR-025** | **Response Generation:** Natural, conversational responses | Critical | User satisfaction score >4.2/5 |
+| **FR-026** | **Tone Adaptation:** Adjust based on sentiment | Medium | Adapt tone for 85% of emotional queries |
+| **FR-027** | **Multi-Channel Support:** Web, Slack, Discord, Email | High | Deploy to 4+ channels |
+| **FR-028** | **Handoff Protocol:** Seamless escalation to human | Critical | Transfer full history and routing context |
+| **FR-029** | **Feedback Collection:** Thumbs up/down | High | Achieve 30%+ response rate |
+| **FR-030** | **Analytics Dashboard:** Real-time metrics | High | Updates every 5 mins; 7-day history |
+
+### 2.2 Non-Functional Requirements
+| Category | Requirement | Target Metric |
+| :--- | :--- | :--- |
+| **Performance** | End-to-end response latency (p95) | <3 seconds |
+| **Performance** | Router classification latency | <200ms |
+| **Performance** | Vector search latency (p95) | <500ms |
+| **Performance** | SQL query execution time | <1 second |
+| **Scalability** | Concurrent conversations supported | 1,000 simultaneous |
+| **Availability** | System uptime SLA | 99.9% |
+| **Security** | Data encryption | AES-256 (rest), TLS 1.3 (transit) |
+| **Observability** | Logging coverage | 100% of requests with correlation IDs |
+
+---
+
+## 3. Technology Stack & Data Sources
+
+### 3.1 Core Technology Stack
+| Layer | Recommended Choice | Rationale |
+| :--- | :--- | :--- |
+| **Orchestration** | **LangGraph** | Native support for stateful agents, conditional routing, and graph workflows. |
+| **LLM (Cloud)** | **GPT-4o-mini** | Best cost/performance ratio for classification. |
+| **LLM (Local)** | **Llama 3.1 8B (Ollama)** | Strong performance, easy local deployment. |
+| **Vector DB** | **ChromaDB (Dev) / Qdrant (Prod)** | ChromaDB for simplicity; Qdrant for scale. |
+| **Embedding** | **text-embedding-3-small** | Excellent quality, low cost, 1536 dims. |
+| **SQL DB** | **SQLite (POC) / PostgreSQL (Prod)** | SQLite for zero-config; Postgres for prod. |
+| **Web Search** | **Tavily API** | Purpose-built for AI; clean JSON. |
+| **Backend** | **FastAPI** | Async support, Pydantic validation. |
+| **Frontend** | **Next.js (Prod) / Streamlit (POC)** | Next.js for production UI. |
+| **Observability** | **LangSmith** | Native integration, excellent debugging/tracing. |
+
+### 3.2 Data Sources & Setup
+* **Policy Docs (Vector DB):** Return Policy, Shipping Policy, FAQ, Terms of Service, Product Manuals.
+* **Order DB (SQL):** Tables for `orders`, `order_items`, `customers`, `shipments`, `returns`, `products`.
+* **Web Search:** Competitor info, Industry news, Regulatory updates.
+
+### 3.3 API Integrations & Costs
+* **OpenAI GPT-4o-mini:** ~$50-100/mo (10k queries)
+* **Tavily Search:** ~$15-30/mo
+* **Qdrant Cloud:** ~$25-100/mo
+* **Total Est:** $95-280/mo (Cloud) or $25-50/mo (Hybrid)
+
+---
+
+## 4. Agentic Architecture Design
+
+### 4.1 System Architecture Overview
+Omni-Help uses **LangGraph** where nodes represent processing steps and edges represent conditional routing logic.
+
+#### 4.1.1 Node Definitions
+* **Router Node:** Classifies intent (Policy, Order, Web, Complaint).
+* **Retriever Node:** Semantic search over policy docs.
+* **SQL Node:** Generates and executes SQL for order data.
+* **Web Node:** Executes web searches via Tavily.
+* **Synthesis Node:** Combines retrieved info into final response.
+* **Fallback Node:** Handles unroutable queries/escalations.
+
+#### 4.1.2 Routing Logic (State Machine)
+1.  **START** -> **ROUTER**
+2.  **ROUTER** -> **RETRIEVER** (if Intent = Policy_Question)
+3.  **ROUTER** -> **SQL_AGENT** (if Intent = Order_Status)
+4.  **ROUTER** -> **WEB_SEARCH** (if Intent = General_Chat)
+5.  **ROUTER** -> **FALLBACK** (if Intent = Complaint or Confidence < 0.7)
+6.  **RETRIEVER/SQL/WEB** -> **SYNTHESIS** (if successful)
+7.  **SYNTHESIS** -> **END**
+
+### 4.2 Making the System Truly Agentic
+Key capabilities include **Tool Selection**, **Multi-Step Reasoning**, **Self-Correction** (retrying invalid SQL), **Memory Management**, and **Confidence Calibration**.
+
+### 4.2.2 The ReAct Pattern
+* **Thought:** "User asks for order #123. Needs DB access."
+* **Action:** `sql_query("SELECT * FROM orders...")`
+* **Observation:** "Order found, status: Shipped."
+* **Response:** "Your order #123 has shipped!"
+
+### 4.2.3 Agent Communication Protocol
+Standardized messages: `UserMessage`, `RouterDecision`, `ToolRequest`, `ToolResponse`, `SynthesisRequest`, `AgentResponse`.
+
+---
+
+## 5. Implementation Guide
+
+### 5.1 Development Environment
+* **Python:** 3.10+ (Recommend 3.11)
+* **Node.js:** 18+
+* **Dependencies:** `langchain`, `langgraph`, `langchain-openai`, `chromadb`, `fastapi`, `pydantic`, `langsmith`.
+
+### 5.2 Project Structure
+```text
+omni-help/
+├── src/
+│   ├── agents/ (router.py, retriever.py, sql_agent.py)
+│   ├── graph/ (nodes.py, edges.py, state.py)
+│   ├── tools/
+│   ├── prompts/
+│   └── utils/
+├── data/ (policies, db, vectors)
+├── api/ (FastAPI app)
+├── tests/
+└── config/
