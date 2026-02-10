@@ -1,0 +1,62 @@
+[
+  {
+    "id": "g1",
+    "query": "What is your return policy for electronics?",
+    "intent": "policy",
+    "notes": "Policy_Question: internal doc"
+  },
+  {
+    "id": "g2",
+    "query": "Where can I find the shipping and delivery FAQ?",
+    "intent": "policy",
+    "notes": "Policy_Question: procedures"
+  },
+  {
+    "id": "g3",
+    "query": "Where is my order #12345?",
+    "intent": "sql",
+    "notes": "Order_Status: order tracking"
+  },
+  {
+    "id": "g4",
+    "query": "What is the status of my recent return for order #67890?",
+    "intent": "sql",
+    "notes": "Order_Status: returns"
+  },
+  {
+    "id": "g5",
+    "query": "What are the latest industry regulations for data privacy?",
+    "intent": "web",
+    "notes": "General_Chat: external/real-time"
+  },
+  {
+    "id": "g6",
+    "query": "Who are the main competitors in the cloud storage market?",
+    "intent": "web",
+    "notes": "General_Chat: competitor info"
+  },
+  {
+    "id": "g7",
+    "query": "What are the specs and warranty for the Pro Widget?",
+    "intent": "product_info",
+    "notes": "Product_Info: product details"
+  },
+  {
+    "id": "g8",
+    "query": "Does the Home Kit support integration with Alexa?",
+    "intent": "product_info",
+    "notes": "Product_Info: product capabilities"
+  },
+  {
+    "id": "g9",
+    "query": "I've been waiting over a month and my order never arrived. This is unacceptable.",
+    "intent": "complaint",
+    "notes": "Complaint: escalation"
+  },
+  {
+    "id": "g10",
+    "query": "Your support team gave me wrong information and I want to speak to a manager.",
+    "intent": "complaint",
+    "notes": "Complaint: negative sentiment"
+  }
+]
