@@ -90,11 +90,24 @@ def fallback_node(state: AgentState) -> dict[str, Any]:
 
 def clarification_node(state: AgentState) -> dict[str, Any]:
     """
-    Stub: Clarification node for low-confidence routes.
-    Returns a clarifying question; graph cycles back to router (Phase 3).
+    Clarification node for low-confidence routes (Phase 3).
+
+    Increments clarification_turn_count so the cycle guard in graph.py can
+    break the loop after MAX_CLARIFICATION_TURNS. Clears missing_info so the
+    router can re-classify cleanly on the next turn.
+
+    Args:
+        state: Current AgentState; reads clarification_turn_count and missing_info.
+
+    Returns:
+        Partial state update: incremented turn count, cleared missing_info,
+        and a clarifying question as final_response.
     """
-    print("[Node] Reached CLARIFICATION — low confidence (stub)")
+    turn = state.get("clarification_turn_count", 0) + 1
+    print(f"[Node] Reached CLARIFICATION — turn {turn}")
     return {
+        "clarification_turn_count": turn,
+        "missing_info": [],
         "final_response": (
             "I want to make sure I help you correctly. "
             "Could you provide a bit more detail about your question?"

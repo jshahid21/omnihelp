@@ -8,12 +8,16 @@ forced to return a validated Pydantic object — no manual JSON parsing.
 
 from typing import Literal
 
+from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import BaseModel, Field
 
 from graph.state import AgentState, IntentType
 from prompts.router_prompts import standard_router_prompt
+
+# Load .env before the LLM client is instantiated at module level
+load_dotenv()
 
 
 # ---------------------------------------------------------------------------

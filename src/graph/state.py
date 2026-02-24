@@ -65,6 +65,9 @@ class AgentState(TypedDict, total=False):
     fallback_reason: Optional[str]
     handoff_context: Optional[Dict[str, Any]]
 
+    # --- Cycle guard (Phase 3) ---
+    clarification_turn_count: int  # incremented by clarification_node; max 2 turns
+
     # --- Synthesis ---
     final_response: Optional[str]
     error: Optional[str]
