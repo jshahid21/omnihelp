@@ -1,0 +1,1 @@
+"""Omni-Help prompt templates."""
