@@ -1,17 +1,17 @@
 """
 Omni-Help LangGraph: cyclic StateGraph.
 
-Topology (Phase 3 — cycle closed)
-----------------------------------
+Topology (Phase 7 — synthesis wired)
+--------------------------------------
 START → router
 router → (conditional via route_decision):
-    complaint                       → fallback → END
+    complaint                       → fallback   → END
     confidence < 0.7                → clarification
-    policy                          → retriever → END   (stub)
-    sql                             → sql      → END   (stub)
-    web                             → web      → END   (stub)
-    product_info                    → product_info → END (stub)
-    unknown                         → fallback → END
+    policy                          → retriever  → synthesis → END
+    sql                             → sql        → synthesis → END
+    web                             → web        → synthesis → END
+    product_info                    → product_info → END  (stub, Phase 7+)
+    unknown                         → fallback   → END
 
 clarification → (conditional via clarification_decision):
     turn_count < MAX_CLARIFICATION_TURNS  → router   ← THE CYCLE
@@ -35,6 +35,7 @@ from graph.nodes import (
     retriever_node,
     sql_node,
     web_node,
+    synthesis_node,
     product_info_node,
     fallback_node,
     clarification_node,
@@ -128,6 +129,7 @@ def build_graph() -> StateGraph:
     builder.add_node("retriever", retriever_node)
     builder.add_node("sql", sql_node)
     builder.add_node("web", web_node)
+    builder.add_node("synthesis", synthesis_node)
     builder.add_node("product_info", product_info_node)
     builder.add_node("fallback", fallback_node)
     builder.add_node("clarification", clarification_node)
@@ -159,9 +161,14 @@ def build_graph() -> StateGraph:
         },
     )
 
-    # Pipeline stubs and fallback → END
-    for node in ("retriever", "sql", "web", "product_info", "fallback"):
-        builder.add_edge(node, END)
+    # Live pipeline nodes → synthesis → END
+    for pipeline_node in ("retriever", "sql", "web"):
+        builder.add_edge(pipeline_node, "synthesis")
+    builder.add_edge("synthesis", END)
+
+    # Stub + fallback → END (no synthesis needed)
+    for terminal_node in ("product_info", "fallback"):
+        builder.add_edge(terminal_node, END)
 
     return builder.compile()
 

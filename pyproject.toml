@@ -27,6 +27,9 @@ dependencies = [
     "langchain>=0.3.0",
     "langchain-openai>=0.2.0",
     "langchain-core>=0.3.0",
+    "langchain-community>=0.3.0",
+    "langchain-text-splitters>=0.3.0",
+    "langchain-chroma>=0.1.0",
     "pydantic>=2.0",
     "python-dotenv>=1.0.0",
     # Config (strict enterprise config)
@@ -38,7 +41,11 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "aiosqlite>=0.20.0",
     "chromadb>=0.5.0",
+    "unstructured[md]>=0.15.0",
     "tavily-python>=0.5.0",
+    # Frontend
+    "streamlit>=1.40.0",
+    "requests>=2.32.0",
     # Testing / Ops
     "pytest>=8.0.0",
     "langsmith>=0.1.0",
