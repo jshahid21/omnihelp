@@ -8,6 +8,7 @@ Run (with the FastAPI server already running on port 8000):
     streamlit run src/frontend/app.py
 """
 
+import os
 import uuid
 import requests
 import streamlit as st
@@ -16,7 +17,11 @@ import streamlit as st
 # Constants
 # ---------------------------------------------------------------------------
 
-API_URL = "http://localhost:8000/api/v1/chat"
+# API_BASE_URL is injected as an env var in Docker (set to http://backend:8000
+# by docker-compose so the frontend container can reach the backend container
+# by its service name). Falls back to localhost for local dev without Docker.
+_API_BASE = os.getenv("API_URL", "http://localhost:8000").rstrip("/")
+API_URL = f"{_API_BASE}/api/v1/chat"
 API_TIMEOUT_SECONDS = 30
 
 # Maps intent values to display labels and emoji indicators

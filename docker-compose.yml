@@ -1,0 +1,69 @@
+# =============================================================================
+# Omni-Help — Docker Compose
+# =============================================================================
+# Orchestrates the backend (FastAPI) and frontend (Streamlit) containers.
+#
+# Internal networking:
+#   Docker Compose creates a private bridge network named 'omnihelp_default'.
+#   Containers reach each other by service name, not localhost.
+#   The frontend calls http://backend:8000 — Docker resolves 'backend' to the
+#   backend container's IP on the shared network.
+#
+# Usage:
+#   docker-compose up --build          # first run (builds images + starts)
+#   docker-compose up                  # subsequent runs (skips rebuild)
+#   docker-compose down                # stop and remove containers
+#   docker-compose logs -f backend     # stream backend logs
+#   docker-compose logs -f frontend    # stream frontend logs
+# =============================================================================
+
+version: "3.9"
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Backend — FastAPI + LangGraph engine
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: backend.Dockerfile
+    image: omnihelp-backend:latest
+    container_name: omnihelp-backend
+    ports:
+      - "8000:8000"       # Host:Container — access API at http://localhost:8000
+    env_file:
+      - .env              # Injects OPENAI_API_KEY, TAVILY_API_KEY, LANGCHAIN_* etc.
+    volumes:
+      # Mount data/ at runtime so SQLite writes and ChromaDB updates persist
+      # on the host without rebuilding the image.
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s   # Give uvicorn time to compile LangGraph at startup
+
+  # ---------------------------------------------------------------------------
+  # Frontend — Streamlit chat UI
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend.Dockerfile
+    image: omnihelp-frontend:latest
+    container_name: omnihelp-frontend
+    ports:
+      - "8501:8501"       # Host:Container — open browser at http://localhost:8501
+    env_file:
+      - .env
+    environment:
+      # Override API_URL so the frontend container resolves the backend by its
+      # Docker service name rather than localhost (which would point to itself).
+      - API_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy   # Wait for backend healthcheck to pass
+    restart: unless-stopped
