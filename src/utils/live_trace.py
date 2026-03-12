@@ -1,181 +1,180 @@
 """
-Omni-Help — Live LangSmith Trace Runner
-========================================
-Run this script to fire a real graph execution and see the full X-Ray trace
-in your LangSmith dashboard: every node, every LLM call, token usage, latency.
+Live LangSmith tracing script for Omni-Help.
 
-CRITICAL ORDERING RULE
------------------------
-LangSmith tracing is activated when LangChain is *imported*, not when the LLM
-is called. This means load_dotenv() MUST run before any `from langchain*`
-or `from graph.*` import. All heavy imports are therefore deferred inside
-run_trace() to guarantee the environment is populated first.
+IMPORTANT: load_dotenv() runs before any LangChain import so that
+LANGCHAIN_TRACING_V2=true is in os.environ when LangChain tracing
+callbacks initialise at module load time.
 
-Run from the repo root (venv activated):
+Usage (from repo root, venv activated):
     python src/utils/live_trace.py
 """
 
-import asyncio
 import os
 import sys
+import asyncio
 
-# ---------------------------------------------------------------------------
-# Step 0: Load .env FIRST — before any LangChain import touches the env vars
-# ---------------------------------------------------------------------------
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# ---------------------------------------------------------------------------
-# Step 1: Sanity-check LangSmith configuration
-# ---------------------------------------------------------------------------
 
-TRACING_ACTIVE = os.getenv("LANGCHAIN_TRACING_V2", "false").strip().lower() == "true"
-LANGSMITH_KEY   = os.getenv("LANGCHAIN_API_KEY", "").strip()
-LANGSMITH_PROJECT = os.getenv("LANGCHAIN_PROJECT", "omni-help").strip()
-
-BANNER = "=" * 68
-
-def _check_env() -> bool:
+def _check_environment():
     """
-    Verify that LangSmith is properly configured.
+    Verify LangSmith tracing is configured and active.
+
+    Prints clear, actionable instructions for each missing piece.
 
     Returns:
-        True if all required variables are set and tracing is enabled.
-        Prints a loud warning and returns False otherwise.
+        True if LANGCHAIN_TRACING_V2=true and LANGCHAIN_API_KEY is set.
     """
-    issues = []
+    ok = True
 
-    if not TRACING_ACTIVE:
-        issues.append(
-            "  ✗  LANGCHAIN_TRACING_V2 is not 'true'\n"
-            "     → Open your .env file and change the line to:\n"
-            "         LANGCHAIN_TRACING_V2=true"
-        )
+    tracing = os.getenv("LANGCHAIN_TRACING_V2", "").strip().lower()
+    if tracing != "true":
+        print()
+        print("=" * 65)
+        print("  WARNING: LANGCHAIN_TRACING_V2 is not enabled!")
+        print("=" * 65)
+        print("  In your .env file change:")
+        print("    LANGCHAIN_TRACING_V2=false")
+        print("  to:")
+        print("    LANGCHAIN_TRACING_V2=true")
+        print("  Then re-run: python src/utils/live_trace.py")
+        print("=" * 65)
+        ok = False
 
-    if not LANGSMITH_KEY:
-        issues.append(
-            "  ✗  LANGCHAIN_API_KEY is empty\n"
-            "     → Get your key at https://smith.langchain.com/settings\n"
-            "     → Add it to .env: LANGCHAIN_API_KEY=lsv2_pt_..."
-        )
+    api_key = os.getenv("LANGCHAIN_API_KEY", "").strip()
+    if not api_key:
+        print()
+        print("=" * 65)
+        print("  WARNING: LANGCHAIN_API_KEY is missing!")
+        print("=" * 65)
+        print("  Get your key at: https://smith.langchain.com/")
+        print("  Add to .env:  LANGCHAIN_API_KEY=lsv2_pt_<key>")
+        print("=" * 65)
+        ok = False
 
-    if issues:
-        print(f"\n{BANNER}")
-        print("⚠️  LANGSMITH TRACING IS NOT ACTIVE — ABORTING")
-        print(BANNER)
-        for issue in issues:
-            print(issue)
-        print(f"\n{BANNER}")
-        print("Fix the issues above, then re-run:")
-        print("  python src/utils/live_trace.py")
-        print(BANNER + "\n")
-        return False
+    if ok:
+        project = os.getenv("LANGCHAIN_PROJECT", "default")
+        print()
+        print("LangSmith tracing is ACTIVE")
+        print("  Project : " + project)
+        print("  Key     : " + api_key[:12] + "...")
+        print()
 
-    print(f"\n{BANNER}")
-    print("✅ LangSmith tracing is ENABLED")
-    print(f"   Project : {LANGSMITH_PROJECT}")
-    print(f"   Key     : {LANGSMITH_KEY[:12]}... (truncated)")
-    print(f"   Dashboard: https://smith.langchain.com/")
-    print(BANNER + "\n")
-    return True
+    return ok
 
 
-# ---------------------------------------------------------------------------
-# Step 2: The trace runner
-# ---------------------------------------------------------------------------
+def _import_graph():
+    """
+    Import and compile the graph after env vars are loaded.
 
-# These two queries are designed to force different routing paths and make
-# the LangSmith trace as rich as possible to explore:
-#   - A combined policy + order question → router picks one intent, but the
-#     full classification chain (confidence scoring, rationale) is still traced
-#   - A follow-up order lookup → exercises the SQL pipeline
-TRACE_QUERIES = [
+    Deferred import ensures LANGCHAIN_TRACING_V2=true is already set
+    in os.environ when LangChain tracing hooks init at module load.
+    """
+    src_path = os.path.join(os.path.dirname(__file__), "..")
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
+    from graph.graph import build_graph
+    return build_graph()
+
+
+# Each tuple: (description, query, expected_pipeline)
+TEST_CASES = [
     (
-        "I need to know the return policy for electronics, and also, "
-        "where is my order ORD-1001? It was supposed to arrive last week.",
-        "Multi-intent query — router must choose and commit to one path",
+        "Multi-intent: policy + order (router must pick one)",
+        "I need to know the return policy for electronics, and also, where is my order ORD-1001?",
+        "policy or sql",
     ),
     (
-        "What is the shipping carrier for order ORD-1002?",
-        "Direct SQL query — exercises NL→SQL generation and FR-015 guardrail",
+        "Pure SQL: order status lookup",
+        "What is the current status and estimated delivery date for order ORD-1002?",
+        "sql",
+    ),
+    (
+        "Pure Policy: RAG retrieval",
+        "What items are excluded from the 30-day return window?",
+        "policy",
+    ),
+    (
+        "Web fallback: general knowledge",
+        "What are the latest AI regulations in the European Union for 2025?",
+        "web",
+    ),
+    (
+        "Complaint: direct fallback, no synthesis",
+        "This is completely unacceptable. I have been waiting 3 weeks and no one helps.",
+        "fallback",
     ),
 ]
 
 
-async def run_trace() -> None:
+async def run_trace(graph) -> None:
     """
-    Execute the Omni-Help graph with two representative queries and print
-    the results. Each invocation produces one LangSmith trace run.
+    Execute all test cases through the compiled graph and print a summary.
 
-    The traces will appear in your LangSmith project under the run names
-    generated by LangGraph (one per ainvoke call).
+    Each ainvoke call creates one run in LangSmith under LANGCHAIN_PROJECT.
+    Open https://smith.langchain.com/ after this script finishes to see:
+      - The node sequence that executed (router -> sql -> synthesis, etc.)
+      - Exact LLM prompts and completions at each node
+      - Per-node latency and cumulative token usage
+      - Full AgentState snapshot at every step
     """
-    # Deferred imports — LangSmith hooks into LangChain at import time,
-    # so load_dotenv() must already have run before these lines execute.
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-    from graph.graph import build_graph  # noqa: PLC0415
+    total = len(TEST_CASES)
+    print("=" * 65)
+    print("  Omni-Help Live Trace Runner  --  " + str(total) + " test cases")
+    print("=" * 65)
 
-    print("Compiling LangGraph...")
-    omni_graph = build_graph()
-    print("Graph compiled. Starting trace runs...\n")
-
-    for i, (query, description) in enumerate(TRACE_QUERIES, start=1):
-        print(f"{BANNER}")
-        print(f"Run {i}/{len(TRACE_QUERIES)}: {description}")
-        print(f"Query: \"{query}\"")
-        print(BANNER)
+    for idx, (description, query, expected) in enumerate(TEST_CASES, start=1):
+        print()
+        print("[" + str(idx) + "/" + str(total) + "]  " + description)
+        print("  Query    : " + query[:80] + ("..." if len(query) > 80 else ""))
+        print("  Expected : " + expected)
+        print("  Running  ...")
 
         try:
-            result = await omni_graph.ainvoke(
+            result = await graph.ainvoke(
                 {"user_query": query},
                 config={
-                    "configurable": {"thread_id": f"live-trace-run-{i}"},
-                    # run_name appears as the trace title in the LangSmith UI
-                    "run_name": f"live_trace_run_{i}",
-                    "tags": ["live-trace", "manual-test"],
-                    "metadata": {
-                        "test_description": description,
-                        "script": "src/utils/live_trace.py",
-                    },
+                    "configurable": {"thread_id": "live-trace-" + str(idx)},
+                    "run_name": "trace-" + str(idx) + ": " + description[:45],
                 },
             )
-
-            intent    = result.get("intent", "unknown")
+            intent = result.get("intent", "unknown")
             confidence = result.get("confidence", 0.0)
-            response  = result.get("final_response", "(no response)")
+            response = result.get("final_response", "-- no response --")
 
-            print(f"\n  Intent     : {intent}")
-            print(f"  Confidence : {confidence:.0%}")
-            print(f"  Response   : {response[:300]}{'...' if len(response) > 300 else ''}\n")
+            print("  Intent   : " + intent + "  (" + str(round(confidence * 100)) + "% confidence)")
+            print("  Response : " + response[:120] + ("..." if len(response) > 120 else ""))
 
         except Exception as exc:
-            print(f"\n  ❌ Run {i} failed: {exc}\n")
+            print("  ERROR: " + str(exc))
 
-    # ---------------------------------------------------------------------------
-    # Step 3: Closing banner
-    # ---------------------------------------------------------------------------
-    print(BANNER)
-    print("✅  Run complete!")
+    project = os.getenv("LANGCHAIN_PROJECT", "default")
     print()
-    print("   Open your LangSmith dashboard to view:")
-    print("   → Full execution trace (every node, conditional edge, LLM call)")
-    print("   → Per-node latency breakdown")
-    print("   → Token usage and model metadata")
-    print("   → Inputs and outputs at each step")
+    print("=" * 65)
     print()
-    print("   Dashboard : https://smith.langchain.com/")
-    print(f"   Project   : {LANGSMITH_PROJECT}")
-    print("   Filter    : tags = 'live-trace'")
-    print(BANNER + "\n")
+    print("  Run complete! Open LangSmith to view execution traces:")
+    print()
+    print("  https://smith.langchain.com/")
+    print("  Project: " + project)
+    print()
+    print("  In the dashboard you will see:")
+    print("  - Node execution order for each run")
+    print("  - Exact LLM prompts and completions")
+    print("  - Latency and token usage per node")
+    print("  - Full AgentState at every checkpoint")
+    print()
+    print("=" * 65)
+    print()
 
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    if not _check_env():
+    if not _check_environment():
         sys.exit(1)
 
-    asyncio.run(run_trace())
+    print("Importing graph (loads LLM clients and DB connections)...")
+    graph = _import_graph()
+    print("Graph compiled. Starting trace runs...")
+
+    asyncio.run(run_trace(graph))
