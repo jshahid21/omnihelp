@@ -7,14 +7,12 @@ Exposes two routes:
                          LangGraph orchestration engine asynchronously, and
                          returns a synthesised response with routing metadata.
 
-Design decisions:
-  - graph is loaded once at startup via the lifespan context manager (not
-    per-request) so the compiled StateGraph and all LLM clients are reused.
-  - Every request gets a correlation_id (UUID) for end-to-end log tracing.
-  - conversation_id is forwarded to LangGraph's thread_id so multi-turn
-    context is maintained across requests from the same session.
-  - Errors are caught at the route level and surfaced as structured HTTP 500
-    responses — the graph never leaks raw Python tracebacks to clients.
+Security layers:
+  - Bearer token auth: every /chat request must include a valid
+    Authorization: Bearer <APP_ACCESS_TOKEN> header (HTTP 401 otherwise).
+  - Rate limiting: 5 requests/minute per IP via slowapi (HTTP 429 otherwise).
+  - Request size limit: 1 MB max body (HTTP 413 otherwise).
+  - CORS: restricted to known frontend origins.
 
 Run:
     uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
@@ -28,9 +26,13 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # Ensure src/ is on the path when uvicorn loads the module
@@ -39,6 +41,47 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 load_dotenv()
 
 from api.schema import ChatRequest, ChatResponse, HealthResponse
+
+# ---------------------------------------------------------------------------
+# Rate limiter — keyed by client IP
+# ---------------------------------------------------------------------------
+
+limiter = Limiter(key_func=get_remote_address)
+
+# ---------------------------------------------------------------------------
+# Auth — Bearer token guard
+# ---------------------------------------------------------------------------
+
+_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def verify_token(
+    credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
+) -> str:
+    """
+    FastAPI dependency that validates the Authorization: Bearer <token> header.
+
+    Compares the supplied token to APP_ACCESS_TOKEN from the environment.
+    Returns the token on success so downstream handlers can use it (e.g. to
+    pass to the Streamlit frontend for per-session auth state).
+
+    Raises:
+        HTTPException 401: If the header is missing or the token is invalid.
+    """
+    expected = os.getenv("APP_ACCESS_TOKEN", "")
+    if not expected:
+        # Fail open with a warning if the token is not configured — lets the
+        # app start without auth in local dev. Remove this branch for strict prod.
+        return ""
+
+    if credentials is None or credentials.credentials != expected:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing Authorization token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return credentials.credentials
+
 
 # ---------------------------------------------------------------------------
 # Logging — structured, level from env (default INFO)
@@ -86,6 +129,10 @@ app = FastAPI(
     ),
     lifespan=lifespan,
 )
+
+# Attach slowapi limiter state and its 429 error handler
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ---------------------------------------------------------------------------
 # Security: request body size limit (1 MB) — guards against payload DoS
@@ -149,7 +196,12 @@ async def health_check() -> HealthResponse:
     summary="Submit a customer query",
     tags=["Chat"],
 )
-async def chat(request: ChatRequest) -> ChatResponse:
+@limiter.limit("5/minute")
+async def chat(
+    request: Request,
+    body: ChatRequest,
+    _token: str = Depends(verify_token),
+) -> ChatResponse:
     """
     Accept a natural language query and return a synthesised response.
 
@@ -171,14 +223,14 @@ async def chat(request: ChatRequest) -> ChatResponse:
     logger.info(
         "Request started | correlation_id=%s | conversation_id=%s | query=%r",
         correlation_id,
-        request.conversation_id,
-        request.query[:120],   # Truncate long queries in logs
+        body.conversation_id,
+        body.query[:120],   # Truncate long queries in logs
     )
 
     try:
         result = await _graph.ainvoke(
-            {"user_query": request.query},
-            config={"configurable": {"thread_id": request.conversation_id}},
+            {"user_query": body.query},
+            config={"configurable": {"thread_id": body.conversation_id}},
         )
     except Exception as exc:
         logger.error(

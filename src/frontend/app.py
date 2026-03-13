@@ -49,6 +49,12 @@ st.set_page_config(
 # Session state initialisation
 # ---------------------------------------------------------------------------
 
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if "access_token" not in st.session_state:
+    st.session_state.access_token = ""
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -59,7 +65,31 @@ if "total_queries" not in st.session_state:
     st.session_state.total_queries = 0
 
 # ---------------------------------------------------------------------------
-# Sidebar
+# Login gate — shown until the user supplies the correct access token
+# ---------------------------------------------------------------------------
+
+if not st.session_state.authenticated:
+    st.markdown("# 🤖 Omni-Help Enterprise AI")
+    st.markdown("This application is restricted to authorized users.")
+    st.divider()
+
+    with st.form("login_form"):
+        password = st.text_input("Enter Access Password", type="password")
+        submitted = st.form_submit_button("Login", use_container_width=True)
+
+    if submitted:
+        expected = os.getenv("APP_ACCESS_TOKEN", "")
+        if expected and password == expected:
+            st.session_state.authenticated = True
+            st.session_state.access_token = password
+            st.rerun()
+        else:
+            st.error("Incorrect password. Please try again.")
+
+    st.stop()   # Halt rendering — nothing below this runs until authenticated
+
+# ---------------------------------------------------------------------------
+# Sidebar (only rendered when authenticated)
 # ---------------------------------------------------------------------------
 
 with st.sidebar:
@@ -79,6 +109,13 @@ with st.sidebar:
         st.session_state.messages = []
         st.session_state.session_id = str(uuid.uuid4())
         st.session_state.total_queries = 0
+        st.rerun()
+
+    st.markdown("---")
+    if st.button("🔒 Log out", use_container_width=True):
+        st.session_state.authenticated = False
+        st.session_state.access_token = ""
+        st.session_state.messages = []
         st.rerun()
 
     st.markdown("---")
@@ -124,7 +161,7 @@ if prompt := st.chat_input("Ask Omni-Help..."):
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # 2. Call the FastAPI backend
+    # 2. Call the FastAPI backend with the Bearer token for auth
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
@@ -133,6 +170,9 @@ if prompt := st.chat_input("Ask Omni-Help..."):
                     json={
                         "query": prompt,
                         "conversation_id": st.session_state.session_id,
+                    },
+                    headers={
+                        "Authorization": f"Bearer {st.session_state.access_token}",
                     },
                     timeout=API_TIMEOUT_SECONDS,
                 )
@@ -143,6 +183,15 @@ if prompt := st.chat_input("Ask Omni-Help..."):
                 intent: str = data.get("intent", "unknown")
                 confidence: float = data.get("confidence", 0.0)
                 correlation_id: str = data.get("correlation_id", "")
+
+            except requests.exceptions.HTTPError as http_err:
+                if api_response.status_code == 401:
+                    ai_text = "⚠️ **Authentication failed.** Your session token is invalid. Please log out and log in again."
+                elif api_response.status_code == 429:
+                    ai_text = "⚠️ **Rate limit reached.** You are sending messages too quickly. Please wait a moment and try again."
+                else:
+                    ai_text = f"⚠️ **Server error ({api_response.status_code}):** {http_err}"
+                intent, confidence, correlation_id = "unknown", 0.0, ""
 
             except requests.exceptions.ConnectionError:
                 ai_text = (
