@@ -31,6 +31,10 @@ FROM python:3.11-slim AS runtime
 
 WORKDIR /app
 
+# curl is required for the docker-compose healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy installed packages from builder — keeps final image free of build tools
 COPY --from=builder /install /usr/local
 

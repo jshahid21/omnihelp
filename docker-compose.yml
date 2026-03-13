@@ -39,10 +39,10 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
-      interval: 30s
+      interval: 15s
       timeout: 10s
-      retries: 3
-      start_period: 15s   # Give uvicorn time to compile LangGraph at startup
+      retries: 5
+      start_period: 30s   # Give uvicorn time to compile LangGraph at startup
 
   # ---------------------------------------------------------------------------
   # Frontend — Streamlit chat UI
