@@ -2,6 +2,8 @@
 
 > An AI-powered customer support system that **classifies intent first**, then routes each query to the right data source — policy documents, order database, or live web search — before synthesizing a natural response.
 
+**Live Demo:** [http://52.15.142.63:8501](http://52.15.142.63:8501) *(hosted on AWS EC2 — DNS: saving.fit coming soon)*
+
 ---
 
 ## What Is Omni-Help?
