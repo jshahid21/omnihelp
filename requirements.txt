@@ -28,7 +28,6 @@ dataclasses-json==0.6.7
 distro==1.9.0
 durationpy==0.10
 emoji==2.15.0
-en_core_web_sm==3.8.0
 fastapi==0.135.1
 filelock==3.25.2
 filetype==1.2.0
