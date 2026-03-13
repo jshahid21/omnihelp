@@ -163,8 +163,12 @@ app.add_middleware(RequestSizeLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:8501",   # Streamlit
-        "http://localhost:3000",   # Next.js
+        "http://localhost:8501",       # local dev Streamlit
+        "http://localhost:3000",       # local dev Next.js
+        "http://saving.fit",           # production domain
+        "https://saving.fit",          # production domain (HTTPS)
+        "http://www.saving.fit",
+        "https://www.saving.fit",
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST"],
