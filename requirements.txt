@@ -89,7 +89,6 @@ numba==0.64.0
 numpy==2.4.3
 oauthlib==3.3.1
 olefile==0.47
--e git+ssh://git@github.com/jshahid21/omnihelp.git@52a7c8f0f489725404fb566cda6ee9ac39bd222d#egg=omni_help
 onnxruntime==1.24.3
 openai==2.26.0
 opentelemetry-api==1.40.0
