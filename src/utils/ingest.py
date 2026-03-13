@@ -1,11 +1,15 @@
 """
-Policy document ingestion script for Omni-Help.
+Document ingestion script for Omni-Help.
 
-Loads all markdown files from data/policies/, splits them into chunks,
-embeds them with text-embedding-3-small, and persists to a local ChromaDB
-at data/vectors/.
+Loads markdown files from two source directories, splits them into chunks,
+embeds with text-embedding-3-small, and persists to separate ChromaDB
+collections under data/vectors/.
 
-Run once (or whenever policy documents are updated):
+Collections:
+  - "policies" ← data/policies/  (return policy, shipping, etc.)
+  - "products"  ← data/manuals/   (product user guides, troubleshooting)
+
+Run once (or whenever documents are updated):
     python src/utils/ingest.py
 """
 
@@ -27,39 +31,61 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Configuration — collection names must match vector_store.py exactly
 # ---------------------------------------------------------------------------
 
-# Paths are relative to the repo root — always run from there.
-POLICIES_DIR = "./data/policies"
 VECTOR_DIR = "./data/vectors"
 EMBEDDING_MODEL = "text-embedding-3-small"
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
-COLLECTION_NAME = "policy_docs"
+
+INGESTION_SOURCES = [
+    {
+        "directory": "./data/policies",
+        "collection": "policies",
+        "label": "Policy documents",
+    },
+    {
+        "directory": "./data/manuals",
+        "collection": "products",
+        "label": "Product manuals",
+    },
+]
 
 
-def ingest_policies() -> int:
+def ingest_directory(directory: str, collection: str, label: str) -> int:
     """
-    Load, split, embed, and persist policy documents to ChromaDB.
+    Load, split, embed, and persist markdown files from one directory
+    into a named ChromaDB collection.
+
+    Args:
+        directory:  Path to the source directory (relative to repo root).
+        collection: ChromaDB collection name to write into.
+        label:      Human-readable label for log output.
 
     Returns:
         Number of document chunks successfully ingested.
 
     Raises:
-        FileNotFoundError: If POLICIES_DIR does not exist.
-        ValueError: If no documents are found in POLICIES_DIR.
+        FileNotFoundError: If the directory does not exist.
+        ValueError: If no markdown documents are found.
     """
-    if not os.path.isdir(POLICIES_DIR):
+    print(f"\n{'=' * 55}")
+    print(f"  Ingesting: {label}")
+    print(f"  Source   : {directory}")
+    print(f"  Collection: {collection}")
+    print(f"{'=' * 55}")
+
+    if not os.path.isdir(directory):
         raise FileNotFoundError(
-            f"Policies directory not found: '{POLICIES_DIR}'. "
+            f"Directory not found: '{directory}'. "
             "Run from the repo root: python src/utils/ingest.py"
         )
 
     # --- Load ---
-    print(f"[Ingest] Loading documents from '{POLICIES_DIR}' ...")
+    print(f"[Ingest] Loading documents from '{directory}' ...")
     loader = DirectoryLoader(
-        POLICIES_DIR,
+        directory,
         glob="**/*.md",
         loader_cls=UnstructuredMarkdownLoader,
         show_progress=True,
@@ -67,7 +93,7 @@ def ingest_policies() -> int:
     docs = loader.load()
 
     if not docs:
-        raise ValueError(f"No markdown documents found in '{POLICIES_DIR}'.")
+        raise ValueError(f"No markdown documents found in '{directory}'.")
 
     print(f"[Ingest] Loaded {len(docs)} document(s).")
 
@@ -75,27 +101,48 @@ def ingest_policies() -> int:
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
-        add_start_index=True,  # Adds 'start_index' metadata for citation traceability
+        add_start_index=True,
     )
     chunks = splitter.split_documents(docs)
     print(f"[Ingest] Split into {len(chunks)} chunk(s) "
-          f"(chunk_size={CHUNK_SIZE}, overlap={CHUNK_OVERLAP}).")
+          f"(size={CHUNK_SIZE}, overlap={CHUNK_OVERLAP}).")
 
     # --- Embed + Persist ---
-    print(f"[Ingest] Embedding with '{EMBEDDING_MODEL}' and persisting to '{VECTOR_DIR}' ...")
+    print(f"[Ingest] Embedding with '{EMBEDDING_MODEL}' → collection '{collection}' ...")
     embeddings = OpenAIEmbeddings(model=EMBEDDING_MODEL)
 
     db = Chroma.from_documents(
         documents=chunks,
         embedding=embeddings,
-        collection_name=COLLECTION_NAME,
+        collection_name=collection,
         persist_directory=VECTOR_DIR,
     )
 
     count = db._collection.count()
-    print(f"\n✅ Ingestion complete. {count} chunk(s) stored in ChromaDB at '{VECTOR_DIR}'.")
+    print(f"[Ingest] Done. {count} chunk(s) in collection '{collection}'.")
     return count
 
 
+def ingest_all() -> None:
+    """
+    Ingest all configured source directories into their respective
+    ChromaDB collections.
+    """
+    totals = {}
+    for source in INGESTION_SOURCES:
+        count = ingest_directory(
+            directory=source["directory"],
+            collection=source["collection"],
+            label=source["label"],
+        )
+        totals[source["collection"]] = count
+
+    print(f"\n{'=' * 55}")
+    print("  Ingestion complete!")
+    for collection, count in totals.items():
+        print(f"  {collection:12s} → {count} chunk(s) in ChromaDB at '{VECTOR_DIR}'")
+    print(f"{'=' * 55}\n")
+
+
 if __name__ == "__main__":
-    ingest_policies()
+    ingest_all()

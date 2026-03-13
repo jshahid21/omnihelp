@@ -17,7 +17,7 @@ from langchain_openai import ChatOpenAI
 
 from graph.state import AgentState
 from agents.router import router_agent
-from tools.vector_store import get_policy_retriever, format_docs
+from tools.vector_store import get_policy_retriever, get_product_retriever, format_docs
 from tools.sql_db import execute_secure_query, get_schema
 from tools.web_search import execute_web_search, format_web_results
 from prompts.synthesis_prompts import system_synthesis_prompt
@@ -223,6 +223,7 @@ def synthesis_node(state: AgentState) -> dict[str, Any]:
 
     # --- Pick the richest available context (priority order) ---
     policy_context: str | None = state.get("policy_context")
+    product_context: str | None = state.get("product_context")
     sql_result: Any = state.get("sql_result")
     sql_query: str | None = state.get("sql_query")
     sql_error: str | None = state.get("sql_error")
@@ -230,6 +231,7 @@ def synthesis_node(state: AgentState) -> dict[str, Any]:
 
     if sql_error:
         context = f"Database error: {sql_error}"
+        source = "sql_error"
     elif sql_result is not None:
         # Include the SQL query so the LLM can read column names from the
         # SELECT clause and map them to the anonymous tuple values in the result.
@@ -237,15 +239,21 @@ def synthesis_node(state: AgentState) -> dict[str, Any]:
             f"SQL query executed:\n{sql_query}\n\n"
             f"Database result (rows match the SELECT columns above):\n{sql_result}"
         )
+        source = "sql"
     elif policy_context:
         context = f"Policy documentation:\n{policy_context}"
+        source = "policy"
+    elif product_context:
+        context = f"Product manual:\n{product_context}"
+        source = "product"
     elif web_context:
         context = f"Web search results:\n{web_context}"
+        source = "web"
     else:
         context = "No relevant context was found for this query."
+        source = "none"
 
-    print(f"[Node] SYNTHESIS — generating response (context source: "
-          f"{'sql_error' if sql_error else 'sql' if sql_result is not None else 'policy' if policy_context else 'web' if web_context else 'none'})")
+    print(f"[Node] SYNTHESIS — generating response (context source: {source})")
 
     filled_prompt = system_synthesis_prompt.format(context=context)
 
@@ -264,11 +272,38 @@ def synthesis_node(state: AgentState) -> dict[str, Any]:
 
 def product_info_node(state: AgentState) -> dict[str, Any]:
     """
-    Stub: Product info pipeline (Phase 4/6).
-    Routes to retriever or web depending on availability.
+    Product Info RAG pipeline — live implementation.
+
+    Retrieves the top-k semantically similar product manual chunks from the
+    'products' ChromaDB collection and writes the result into product_context
+    for the Synthesis Node to consume.
+
+    Args:
+        state: Current AgentState; must contain 'user_query'.
+
+    Returns:
+        Partial state update: product_docs, product_context, final_response.
     """
-    print("[Node] Reached PRODUCT_INFO (stub)")
-    return {"final_response": "⚙️ [Stub] Product info not yet implemented."}
+    user_query: str = state.get("user_query", "")
+    if not user_query:
+        for msg in reversed(state.get("messages", [])):
+            if hasattr(msg, "type") and msg.type == "human":
+                user_query = msg.content
+                break
+
+    print(f"[Node] PRODUCT_INFO — querying product manuals for: '{user_query}'")
+
+    retriever = get_product_retriever(k=3)
+    docs = retriever.invoke(user_query)
+    product_context = format_docs(docs)
+
+    print(f"[Node] PRODUCT_INFO — retrieved {len(docs)} chunk(s).")
+
+    return {
+        "product_docs": docs,
+        "product_context": product_context,
+        "final_response": f"Here is the raw product context:\n\n{product_context}",
+    }
 
 
 def fallback_node(state: AgentState) -> dict[str, Any]:

@@ -105,6 +105,43 @@ with st.sidebar:
         st.markdown(f"{label}")
 
     st.markdown("---")
+
+    with st.expander("🧪 Test Data & Sample Prompts", expanded=True):
+        st.markdown("**Copy and paste any prompt below to test a pipeline:**")
+
+        st.markdown("**🗄️ Order DB (SQL)**")
+        st.code("Where is my order ORD-1001?", language=None)
+        st.code("What is the status of order ORD-1002?", language=None)
+        st.code("Show me all orders for alice@example.com", language=None)
+
+        st.markdown("**📋 Policy (RAG)**")
+        st.code("What is the return policy for electronics?", language=None)
+        st.code("How long does standard shipping take?", language=None)
+
+        st.markdown("**📦 Product Info (RAG)**")
+        st.code("My EcoHome thermostat screen is blank, what do I do?", language=None)
+        st.code("What does error code E-72 mean on my thermostat?", language=None)
+        st.code("How do I connect the EcoHome TH-400 to Wi-Fi?", language=None)
+
+        st.markdown("**🌐 Web Search**")
+        st.code("What is the latest news on AI regulations in the EU?", language=None)
+
+        st.markdown("**🚨 Escalation (Complaint)**")
+        st.code("This is unacceptable. I want to speak to a manager now.", language=None)
+
+        st.markdown("---")
+        st.markdown("**📦 Orders in test database:**")
+        st.markdown(
+            "| Order ID | Status |\n"
+            "|---|---|\n"
+            "| ORD-1001 | Shipped |\n"
+            "| ORD-1002 | Processing |\n"
+            "| ORD-1003 | Delivered |\n"
+            "| ORD-1004 | Cancelled |\n"
+            "| ORD-1005 | Shipped |"
+        )
+
+    st.markdown("---")
     if st.button("🗑️ Clear conversation", use_container_width=True):
         st.session_state.messages = []
         st.session_state.session_id = str(uuid.uuid4())

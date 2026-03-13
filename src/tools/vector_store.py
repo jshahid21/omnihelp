@@ -1,15 +1,20 @@
 """
-Vector store tool for the Policy RAG pipeline.
+Vector store tool for Omni-Help RAG pipelines.
 
 Wraps ChromaDB behind a stable interface so the rest of the codebase
 never imports Chroma directly. Swapping ChromaDB for Qdrant (prod) only
 requires changes to this file.
 
-Usage:
-    from tools.vector_store import get_policy_retriever, format_docs
+Two collections are maintained in the same persist directory:
+  - "policies"  → data/policies/ (return policy, shipping, etc.)
+  - "products"  → data/manuals/  (product user guides, troubleshooting)
 
-    retriever = get_policy_retriever(k=5)
-    docs = retriever.invoke("What is the return policy?")
+Usage:
+    from tools.vector_store import get_policy_retriever, get_product_retriever, format_docs
+
+    policy_retriever  = get_policy_retriever(k=5)
+    product_retriever = get_product_retriever(k=3)
+    docs    = policy_retriever.invoke("What is the return policy?")
     context = format_docs(docs)
 """
 
@@ -24,12 +29,14 @@ from langchain_openai import OpenAIEmbeddings
 load_dotenv()
 
 # ---------------------------------------------------------------------------
-# Configuration — mirrors ingest.py constants exactly.
+# Configuration — must match the constants in ingest.py exactly.
 # ---------------------------------------------------------------------------
 
 VECTOR_DIR = "./data/vectors"
 EMBEDDING_MODEL = "text-embedding-3-small"
-COLLECTION_NAME = "policy_docs"
+
+POLICY_COLLECTION = "policies"
+PRODUCT_COLLECTION = "products"
 
 # ---------------------------------------------------------------------------
 # Singleton embeddings client — one HTTP connection pool, reused per call.
@@ -38,12 +45,15 @@ COLLECTION_NAME = "policy_docs"
 _embeddings = OpenAIEmbeddings(model=EMBEDDING_MODEL)
 
 
-def _get_db() -> Chroma:
+def _get_collection(collection_name: str) -> Chroma:
     """
-    Open the persisted ChromaDB collection.
+    Open a named ChromaDB collection from the shared persist directory.
+
+    Args:
+        collection_name: One of POLICY_COLLECTION or PRODUCT_COLLECTION.
 
     Returns:
-        Chroma instance pointed at the local vector store.
+        Chroma instance for the requested collection.
 
     Raises:
         FileNotFoundError: If the vector store has not been initialised yet
@@ -55,7 +65,7 @@ def _get_db() -> Chroma:
             "Run the ingestion script first: python src/utils/ingest.py"
         )
     return Chroma(
-        collection_name=COLLECTION_NAME,
+        collection_name=collection_name,
         embedding_function=_embeddings,
         persist_directory=VECTOR_DIR,
     )
@@ -63,24 +73,37 @@ def _get_db() -> Chroma:
 
 def get_policy_retriever(k: int = 5):
     """
-    Return a LangChain retriever for policy documents.
-
-    The retriever accepts a string query and returns the top-k most
-    semantically similar document chunks from ChromaDB.
+    Return a LangChain retriever for policy documents (return policy, shipping, etc.).
 
     Args:
-        k: Number of chunks to retrieve per query. Blueprint default is 5.
+        k: Number of chunks to retrieve per query. Default is 5.
 
     Returns:
-        A LangChain VectorStoreRetriever compatible with .invoke() and
-        LangChain LCEL (|) chains.
+        A LangChain VectorStoreRetriever compatible with .invoke() and LCEL chains.
 
     Example:
         >>> retriever = get_policy_retriever(k=3)
         >>> docs = retriever.invoke("What is the return window?")
     """
-    db = _get_db()
-    return db.as_retriever(search_kwargs={"k": k})
+    return _get_collection(POLICY_COLLECTION).as_retriever(search_kwargs={"k": k})
+
+
+def get_product_retriever(k: int = 3):
+    """
+    Return a LangChain retriever for product manuals and troubleshooting guides.
+
+    Args:
+        k: Number of chunks to retrieve per query. Default is 3 (manuals are
+           more focused than policy docs, so fewer chunks suffice).
+
+    Returns:
+        A LangChain VectorStoreRetriever compatible with .invoke() and LCEL chains.
+
+    Example:
+        >>> retriever = get_product_retriever(k=3)
+        >>> docs = retriever.invoke("EcoHome thermostat screen blank")
+    """
+    return _get_collection(PRODUCT_COLLECTION).as_retriever(search_kwargs={"k": k})
 
 
 def format_docs(docs: List[Document]) -> str:
@@ -91,7 +114,7 @@ def format_docs(docs: List[Document]) -> str:
     synthesis node can reference the origin of every claim.
 
     Args:
-        docs: List of LangChain Document objects returned by the retriever.
+        docs: List of LangChain Document objects returned by a retriever.
 
     Returns:
         A single string with all chunk contents joined by double newlines,
@@ -102,12 +125,9 @@ def format_docs(docs: List[Document]) -> str:
         >>> print(context)
         Items can be returned within 30 days...
         [Source: data/policies/return_policy.md]
-
-        Standard shipping takes 3-5 business days...
-        [Source: data/policies/return_policy.md]
     """
     if not docs:
-        return "No relevant policy documents found."
+        return "No relevant documents found."
 
     sections: List[str] = []
     for doc in docs:

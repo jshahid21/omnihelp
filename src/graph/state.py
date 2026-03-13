@@ -52,6 +52,10 @@ class AgentState(TypedDict, total=False):
     retrieved_docs: List[Any]
     policy_context: Optional[str]
 
+    # --- Product Info (RAG) pipeline ---
+    product_docs: List[Any]
+    product_context: Optional[str]
+
     # --- SQL (Order) pipeline ---
     sql_query: Optional[str]
     sql_result: Optional[List[Dict[str, Any]]]

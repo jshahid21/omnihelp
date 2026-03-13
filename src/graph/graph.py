@@ -10,7 +10,7 @@ router → (conditional via route_decision):
     policy                          → retriever  → synthesis → END
     sql                             → sql        → synthesis → END
     web                             → web        → synthesis → END
-    product_info                    → product_info → END  (stub, Phase 7+)
+    product_info                    → product_info → synthesis → END
     unknown                         → fallback   → END
 
 clarification → (conditional via clarification_decision):
@@ -161,14 +161,13 @@ def build_graph() -> StateGraph:
         },
     )
 
-    # Live pipeline nodes → synthesis → END
-    for pipeline_node in ("retriever", "sql", "web"):
+    # All pipeline nodes → synthesis → END
+    for pipeline_node in ("retriever", "sql", "web", "product_info"):
         builder.add_edge(pipeline_node, "synthesis")
     builder.add_edge("synthesis", END)
 
-    # Stub + fallback → END (no synthesis needed)
-    for terminal_node in ("product_info", "fallback"):
-        builder.add_edge(terminal_node, END)
+    # Fallback → END (escalation message needs no synthesis)
+    builder.add_edge("fallback", END)
 
     return builder.compile()
 
