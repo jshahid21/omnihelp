@@ -8,7 +8,7 @@
 
 ## System Architecture
 
-End-to-end flow: the **Streamlit** UI calls **FastAPI**; every request enters a **LangGraph** state machine where the **Router Agent** classifies the query *before* any tool runs. Conditional edges dispatch to **RAG** (ChromaDB), **SQL** (SQLite with FR-015), **Tavily**, or **clarification / human escalation**. Pipeline outputs converge on the **Synthesis** node, which returns a grounded answer to the client.
+End-to-end flow: the **Streamlit** UI calls **FastAPI**; every request enters a **LangGraph** state machine where the **Router Agent** classifies the query *before* any tool runs. Conditional edges dispatch to **RAG** (ChromaDB), **SQL** (SQLite with a read-only guardrail), **Tavily**, or **clarification / human escalation**. Pipeline outputs converge on the **Synthesis** node, which returns a grounded answer to the client.
 
 ```mermaid
 flowchart TB
@@ -29,7 +29,7 @@ flowchart TB
 
     POL["Policy RAG<br/>ChromaDB — policies"]
     PRD["Product RAG<br/>ChromaDB — manuals"]
-    SQL["SQL pipeline<br/>SQLite + FR-015 read-only guardrail"]
+    SQL["SQL pipeline<br/>SQLite + read-only guardrail"]
     WEB["Web search<br/>Tavily"]
     FALL["Human handoff<br/>fallback / escalation"]
 
@@ -63,22 +63,19 @@ flowchart TB
 | **State-First strategy** | `AgentState` TypedDict is defined and validated before any pipeline is built. State is the only communication channel between nodes. |
 | **Cyclic graph** | Supports self-correction. Clarification loops back to the Router with updated context instead of crashing or hallucinating. |
 | **Structured Output (JSON mode)** | `RouterOutput(BaseModel)` enforced by OpenAI function-calling. The LLM cannot return a malformed classification. |
-| **FR-015 SQL Guardrail** | Regex word-boundary check blocks `DROP`, `DELETE`, `UPDATE`, `INSERT`, `ALTER` before any query reaches SQLite. |
+| **Read-only SQL guardrail** | Regex word-boundary check blocks `DROP`, `DELETE`, `UPDATE`, `INSERT`, `ALTER` before any query reaches SQLite. |
 | **SQL query + rows in synthesis** | Synthesis LLM receives the SELECT clause alongside the result rows so it can map column names to anonymous tuple values. |
 | **Module-level singletons** | LLM clients, DB connections, and ChromaDB handles are created once at import time — not per request. |
 
 ---
+## 🏢 Why This Matters (The Enterprise Business Case)
 
-## Why This Matters
+Standard AI chatbots rely on unpredictable "agentic loops" that often hallucinate or get stuck. Omni-Help is designed for the enterprise, prioritizing **safety, predictability, and resolution rate.**
 
-For **enterprise stakeholders** and **technical hiring teams**, this architecture is designed around control, safety, and measurable outcomes—not novelty for its own sake.
-
-- **Zero-hallucination routing (state machine vs. pure ReAct)** — A dedicated **Router** node commits to a single intent *before* retrieval or tools run. Unlike an unconstrained ReAct loop—where the model can freely alternate between “think,” “act,” and “observe” and drift into the wrong tool—Omni-Help’s **explicit graph edges** make behavior **auditable and repeatable**. Recruiters see a **LangGraph** mental model; leaders see **predictable automation** with fewer surprise code paths.
-
-- **Data security (FR-015 on SQL)** — Every generated SQL string passes a **read-only regex guardrail** that rejects `DROP`, `DELETE`, `UPDATE`, `INSERT`, `ALTER`, and related mutation patterns before execution. That **reduces blast radius** on proprietary order and customer data: the NL→SQL model cannot accidentally (or adversarially) instruct the runtime to destroy or modify production-shaped schemas.
-
-- **Graceful degradation (web + clarification circuit breaker)** — **Tavily** failures are handled in layers (missing key, timeout, empty results) so the **graph never hard-crashes**. When the router is uncertain, a **clarification loop** (capped at two turns) gathers signal instead of guessing; when limits are hit, **human handoff** fires with structured context. Together, these patterns **cut false-confidence answers** and **lower unnecessary escalations**—support stays in the loop only when the system honestly signals ambiguity or complaint.
-
+* **Deterministic AI Routing:** By using a strict State Machine (LangGraph) instead of a standard ReAct agent, the AI's decision-making is auditable and constrained. A request for an order status will *never* accidentally trigger a web search or hallucinate a company policy.
+* **Zero-Trust Data Security:** The Natural Language to SQL (NL-to-SQL) pipeline is wrapped in strict, read-only guardrails. It physically blocks the LLM (or a malicious user prompt) from executing `DROP`, `DELETE`, or `UPDATE` statements, protecting proprietary databases from injection.
+* **Eliminating the "Endless Bot Loop":** If the Router's confidence drops below 70%, it doesn't guess or lie. It utilizes a Clarification Circuit Breaker to ask the user for more details (capped at 2 turns). If the user is angry or the AI remains confused, it elegantly packages the conversation history and escalates to a human agent.
+* **Graceful Degradation:** If an external API (like Tavily Web Search) times out or goes offline, the graph does not crash. It catches the environment error and returns a polite fallback message, reducing unnecessary IT support tickets.
 ---
 
 ## Example Queries — Capabilities
@@ -88,7 +85,7 @@ Each row maps a **sample user question** to the **router intent** and the **pipe
 | Intent | Pipeline | Example query |
 |--------|----------|---------------|
 | **Policy (RAG)** | ChromaDB — `policies` | *"What is the restocking fee for returning electronics?"* |
-| **Order status (SQL)** | SQLite + FR-015 | *"Where is my order ORD-1001?"* |
+| **Order status (SQL)** | SQLite + read-only guardrail | *"Where is my order ORD-1001?"* |
 | **Product manual (RAG)** | ChromaDB — `products` | *"My EcoHome thermostat screen is blank, how do I fix it?"* |
 | **External knowledge (Web)** | Tavily | *"What's the latest news on AI regulations?"* |
 | **Escalation (human handoff)** | Fallback node | *"This is unacceptable, I demand to speak to a manager right now."* |
@@ -112,7 +109,7 @@ Traditional RAG systems retrieve from a single source and hope for the best. Omn
 ## Features
 
 - **100% router accuracy** on the 10-query Golden Dataset (validated with `tests/evaluation/eval_router.py`)
-- **FR-015 read-only SQL guardrail** — mutation queries are blocked and surfaced as clean error messages
+- **Read-only SQL guardrail** — mutation queries are blocked and surfaced as clean error messages
 - **Graceful web failure** — 3-layer error handling (missing key → timeout → empty results), graph never crashes
 - **Cyclic clarification loop** — max 2 turns with a circuit breaker that escalates to human fallback
 - **Multi-turn conversation** — `conversation_id` threaded through LangGraph and Streamlit for session continuity
@@ -143,7 +140,7 @@ omnihelp/
 │   │   ├── router_prompts.py      # Intent classification system prompt
 │   │   └── synthesis_prompts.py   # Context-grounded response prompt
 │   ├── tools/
-│   │   ├── sql_db.py              # Secure SQLite tool + FR-015 guardrail
+│   │   ├── sql_db.py              # Secure SQLite tool + read-only guardrail
 │   │   ├── vector_store.py        # ChromaDB retriever wrapper
 │   │   └── web_search.py          # Tavily search wrapper + graceful failure
 │   └── utils/
