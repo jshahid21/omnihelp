@@ -6,55 +6,55 @@
 
 ---
 
-## What Is Omni-Help?
+## System Architecture
 
-Traditional RAG systems retrieve from a single source and hope for the best. Omni-Help takes a **Classification-First** approach:
+End-to-end flow: the **Streamlit** UI calls **FastAPI**; every request enters a **LangGraph** state machine where the **Router Agent** classifies the query *before* any tool runs. Conditional edges dispatch to **RAG** (ChromaDB), **SQL** (SQLite with FR-015), **Tavily**, or **clarification / human escalation**. Pipeline outputs converge on the **Synthesis** node, which returns a grounded answer to the client.
 
-1. **Router (The Brain):** A GPT-4o-mini classifier with structured JSON output reads the query and returns `intent`, `confidence`, and `reasoning` — before touching any data.
-2. **Cyclic LangGraph:** A stateful, cyclic state machine routes to the right pipeline. If the router is under-confident, it cycles through a **Clarification Node** (up to 2 turns) before escalating to a human agent.
-3. **Three specialized pipelines:** Policy RAG (ChromaDB), Order SQL (SQLite/PostgreSQL), and Web Search (Tavily).
-4. **Synthesis Node:** A final LLM call converts raw pipeline output into a natural, grounded, conversational response.
-5. **FastAPI + Streamlit:** A production-ready async API and a demo chat UI with per-message routing metadata.
+```mermaid
+flowchart TB
+  subgraph Client["Client"]
+    UI[Streamlit UI]
+  end
 
----
+  subgraph API["API layer"]
+    FAST[FastAPI — async /api/v1/chat]
+  end
 
-## Architecture
+  subgraph LG["LangGraph — state machine"]
+    BRAIN["Router Agent (Brain)<br/>structured JSON: intent + confidence"]
+    CLAR["Clarification node<br/>circuit breaker: max 2 turns"]
 
+    BRAIN -->|"low confidence"| CLAR
+    CLAR -->|"re-enter"| BRAIN
+
+    POL["Policy RAG<br/>ChromaDB — policies"]
+    PRD["Product RAG<br/>ChromaDB — manuals"]
+    SQL["SQL pipeline<br/>SQLite + FR-015 read-only guardrail"]
+    WEB["Web search<br/>Tavily"]
+    FALL["Human handoff<br/>fallback / escalation"]
+
+    BRAIN -->|"policy"| POL
+    BRAIN -->|"product_info"| PRD
+    BRAIN -->|"order / sql"| SQL
+    BRAIN -->|"general / web"| WEB
+    BRAIN -->|"complaint or clarify exhausted"| FALL
+
+    SYNTH["Synthesis node<br/>GPT-4o-mini — grounded reply"]
+
+    POL --> SYNTH
+    PRD --> SYNTH
+    SQL --> SYNTH
+    WEB --> SYNTH
+  end
+
+  UI -->|"user query"| FAST
+  FAST --> BRAIN
+  SYNTH -->|"final response"| FAST
+  FALL -->|"escalation message"| FAST
+  FAST --> UI
 ```
-User Query
-    │
-    ▼
-┌─────────────────────────────────────────────────┐
-│                   LangGraph                      │
-│                                                  │
-│   ┌──────────┐   intent + confidence             │
-│   │  Router  │──────────────────────┐            │
-│   │ (Brain)  │                      │            │
-│   └──────────┘   confidence < 0.7   │            │
-│        │    ┌────────────────────┐  │            │
-│        └───▶│  Clarification     │  │            │
-│             │  Node (max 2 turns)│──┘            │
-│             └─────────┬──────────┘               │
-│                       │ exhausted → Fallback      │
-│                                                  │
-│   ┌────────────┐  ┌──────────┐  ┌────────────┐  │
-│   │  Retriever │  │  SQL     │  │  Web       │  │
-│   │ (ChromaDB) │  │  Node    │  │  Node      │  │
-│   │  Policy    │  │  Orders  │  │  (Tavily)  │  │
-│   └─────┬──────┘  └────┬─────┘  └─────┬──────┘  │
-│         └──────────────┴──────────────┘          │
-│                        │                         │
-│                        ▼                         │
-│              ┌──────────────────┐                │
-│              │  Synthesis Node  │                │
-│              │  (GPT-4o-mini    │                │
-│              │   temp=0.3)      │                │
-│              └────────┬─────────┘                │
-└───────────────────────┼──────────────────────────┘
-                        │
-                        ▼
-                  Final Response
-```
+
+*GitHub renders Mermaid in Markdown. For local previews, use an editor or extension that supports Mermaid.*
 
 ### Key Design Decisions
 
@@ -66,6 +66,46 @@ User Query
 | **FR-015 SQL Guardrail** | Regex word-boundary check blocks `DROP`, `DELETE`, `UPDATE`, `INSERT`, `ALTER` before any query reaches SQLite. |
 | **SQL query + rows in synthesis** | Synthesis LLM receives the SELECT clause alongside the result rows so it can map column names to anonymous tuple values. |
 | **Module-level singletons** | LLM clients, DB connections, and ChromaDB handles are created once at import time — not per request. |
+
+---
+
+## Why This Matters
+
+For **enterprise stakeholders** and **technical hiring teams**, this architecture is designed around control, safety, and measurable outcomes—not novelty for its own sake.
+
+- **Zero-hallucination routing (state machine vs. pure ReAct)** — A dedicated **Router** node commits to a single intent *before* retrieval or tools run. Unlike an unconstrained ReAct loop—where the model can freely alternate between “think,” “act,” and “observe” and drift into the wrong tool—Omni-Help’s **explicit graph edges** make behavior **auditable and repeatable**. Recruiters see a **LangGraph** mental model; leaders see **predictable automation** with fewer surprise code paths.
+
+- **Data security (FR-015 on SQL)** — Every generated SQL string passes a **read-only regex guardrail** that rejects `DROP`, `DELETE`, `UPDATE`, `INSERT`, `ALTER`, and related mutation patterns before execution. That **reduces blast radius** on proprietary order and customer data: the NL→SQL model cannot accidentally (or adversarially) instruct the runtime to destroy or modify production-shaped schemas.
+
+- **Graceful degradation (web + clarification circuit breaker)** — **Tavily** failures are handled in layers (missing key, timeout, empty results) so the **graph never hard-crashes**. When the router is uncertain, a **clarification loop** (capped at two turns) gathers signal instead of guessing; when limits are hit, **human handoff** fires with structured context. Together, these patterns **cut false-confidence answers** and **lower unnecessary escalations**—support stays in the loop only when the system honestly signals ambiguity or complaint.
+
+---
+
+## Example Queries — Capabilities
+
+Each row maps a **sample user question** to the **router intent** and the **pipeline** that serves it.
+
+| Intent | Pipeline | Example query |
+|--------|----------|---------------|
+| **Policy (RAG)** | ChromaDB — `policies` | *"What is the restocking fee for returning electronics?"* |
+| **Order status (SQL)** | SQLite + FR-015 | *"Where is my order ORD-1001?"* |
+| **Product manual (RAG)** | ChromaDB — `products` | *"My EcoHome thermostat screen is blank, how do I fix it?"* |
+| **External knowledge (Web)** | Tavily | *"What's the latest news on AI regulations?"* |
+| **Escalation (human handoff)** | Fallback node | *"This is unacceptable, I demand to speak to a manager right now."* |
+
+The **Streamlit** sidebar includes the same prompts for one-click copy/paste during demos.
+
+---
+
+## What Is Omni-Help?
+
+Traditional RAG systems retrieve from a single source and hope for the best. Omni-Help takes a **Classification-First** approach:
+
+1. **Router (The Brain):** A GPT-4o-mini classifier with structured JSON output reads the query and returns `intent`, `confidence`, and `reasoning` — before touching any data.
+2. **Cyclic LangGraph:** A stateful, cyclic state machine routes to the right pipeline. If the router is under-confident, it cycles through a **Clarification Node** (up to 2 turns) before escalating to a human agent.
+3. **Specialized pipelines:** Policy RAG and **product manual RAG** (ChromaDB), order **SQL** (SQLite/PostgreSQL) with read-only guardrails, and **Web Search** (Tavily).
+4. **Synthesis Node:** A final LLM call converts raw pipeline output into a natural, grounded, conversational response.
+5. **FastAPI + Streamlit:** A production-ready async API and a demo chat UI with per-message routing metadata.
 
 ---
 
@@ -111,6 +151,7 @@ omnihelp/
 │       └── ingest.py              # Document ingestion → ChromaDB
 ├── data/
 │   ├── policies/                  # Source markdown policy documents
+│   ├── manuals/                   # Product manuals for product RAG
 │   ├── db/                        # SQLite database (runtime, gitignored)
 │   └── vectors/                   # ChromaDB persisted embeddings (runtime, gitignored)
 ├── tests/
@@ -176,14 +217,11 @@ LANGCHAIN_PROJECT=omni-help
 # Initialize SQLite orders database
 python src/utils/init_db.py
 
-# Ingest policy documents into ChromaDB
+# Ingest policy + product manuals into ChromaDB (two collections)
 python src/utils/ingest.py
 ```
 
-Expected output for `ingest.py`:
-```
-✅ Ingestion complete. N chunk(s) stored in ChromaDB at './data/vectors'.
-```
+You should see separate counts for the `policies` and `products` collections printed at the end.
 
 ### 4. Start the FastAPI backend
 
