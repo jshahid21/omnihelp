@@ -2,8 +2,6 @@
 
 > An AI-powered customer support system that **classifies intent first**, then routes each query to the right data source — policy documents, order database, or live web search — before synthesizing a natural response.
 
-**Live Demo:** [https://saving.fit](https://saving.fit) *(hosted on AWS EC2 with Nginx + Let's Encrypt SSL)*
-
 ---
 
 ## System Architecture
